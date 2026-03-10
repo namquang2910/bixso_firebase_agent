@@ -20,28 +20,55 @@ import path from "path";
 import { CollectionInfo, FieldInfo, QueryResult, WriteResult } from "../types/index.js";
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+// IMPORTANT: FIRESTORE_EMULATOR_HOST must be set in the OS environment BEFORE
+// firebase-admin initializes. The Firebase Admin SDK reads this env var
+// internally during getFirestore() — setting it after init has no effect.
+//
+// We force-set it here from the .env value so it's guaranteed to be present.
 
 function initFirebase(): void {
   if (getApps().length > 0) return;
 
-  const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+  // Determine mode
+  const emulatorHost =
+    process.env.FIRESTORE_EMULATOR_HOST ??
+    process.env.FIRESTORE_EMULATOR ??   // common alias people use
+    null;
+
+  const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? null;
+  const projectId = process.env.FIREBASE_PROJECT_ID ?? "courseai-demo";
+
   if (emulatorHost) {
-    initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID ?? "courseai-demo" });
-    console.log("🔧 Firestore Emulator:", emulatorHost);
+    // Force the env var so the Firebase Admin SDK picks it up
+    process.env.FIRESTORE_EMULATOR_HOST = emulatorHost;
+    initializeApp({ projectId });
+    console.log(`🔧 Firestore Emulator: ${emulatorHost}  (project: ${projectId})`);
     return;
   }
 
-  const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-  if (keyPath && fs.existsSync(path.resolve(keyPath))) {
-    const serviceAccount = JSON.parse(fs.readFileSync(path.resolve(keyPath), "utf8"));
+  if (keyPath) {
+    const resolved = path.resolve(keyPath);
+    if (!fs.existsSync(resolved)) {
+      throw new Error(
+        `Service account file not found at: ${resolved}\n` +
+        `Check FIREBASE_SERVICE_ACCOUNT_PATH in your .env file.`
+      );
+    }
+    const serviceAccount = JSON.parse(fs.readFileSync(resolved, "utf8"));
     initializeApp({ credential: cert(serviceAccount) });
+    console.log(`✅ Firestore connected via service account: ${resolved}`);
     return;
   }
 
+  // Neither configured — give a clear, actionable error
   throw new Error(
-    "Firebase not configured.\n" +
-    "  Option A: Set FIRESTORE_EMULATOR_HOST=localhost:8080\n" +
-    "  Option B: Set FIREBASE_SERVICE_ACCOUNT_PATH=./serviceAccount.json"
+    "\n❌ Firebase is not configured. Fix one of these in your .env file:\n\n" +
+    "  Option A — Local emulator (no account needed):\n" +
+    "    FIRESTORE_EMULATOR_HOST=localhost:8080\n" +
+    "    FIREBASE_PROJECT_ID=courseai-demo\n\n" +
+    "  Option B — Production Firestore:\n" +
+    "    FIREBASE_SERVICE_ACCOUNT_PATH=./serviceAccount.json\n\n" +
+    "  Make sure your .env file is in the PROJECT ROOT (same folder as package.json).\n"
   );
 }
 

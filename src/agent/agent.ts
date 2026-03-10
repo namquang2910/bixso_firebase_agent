@@ -12,9 +12,9 @@ import { extractToolCall, TOOLS } from "../tools/firestoretool.js";
 import { retrieveRelevantSchema } from "./rag/schemaRetriever.js";
 import type { AgentResult } from "../types/index.js";
 
-const OLLAMA_MODEL  = process.env.OLLAMA_MODEL  ?? "llama3.2";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3.2";
 const OLLAMA_SERVER = process.env.OLLAMA_SERVER_ADDRESS ?? "http://localhost:11434";
-const MAX_STEPS     = 8;
+const MAX_STEPS = 8;
 
 export const ai = genkit({
   plugins: [
@@ -42,16 +42,24 @@ async function runAgentCore(
 
   // Step 2: Build system prompt with retrieved schema
   const systemPrompt = buildSystemPrompt(ctx);
+
+  // Merge system prompt into first user message.
+  // llama3.2 and most local Ollama models do not support a separate system
+  // role when multiple messages are present — prepend it to the first user turn.
+  const firstUserContent = systemPrompt + "\n\n---\n\nUser question: " + userMessage;
+
   const messages: { role: "user" | "model"; content: string }[] = [
     ...history,
-    { role: "user", content: userMessage },
+    { role: "user", content: firstUserContent },
   ];
 
   // Step 3: Agent reasoning loop with tool calls
   for (let step = 0; step < MAX_STEPS; step++) {
+    const fullPrompt = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
+
     const { text } = await ai.generate({
-      system: systemPrompt,
-      messages: messages.map(m => ({ role: m.role, content: [{ text: m.content }] })),
+      //system: systemPrompt,
+      messages: [{ role: "user", content: [{ text: fullPrompt }] }],
       config: { temperature: 0.0, maxOutputTokens: 2048 },
     });
 
@@ -83,21 +91,18 @@ async function runAgentCore(
       }
     }
 
-    messages.push({ role: "model", content: text });
+    const docCount = (toolResult as Record<string, unknown>).docCount;
 
-    const resultJson  = JSON.stringify(toolResult, null, 2);
-    const docCount    = (toolResult as Record<string, unknown>).docCount;
+    // After tool execution
+    const toolMessage = "TOOL RESULT (" + toolCall.tool + "):\n" +
+      JSON.stringify(toolResult, null, 2) + "\n\n" +
+      (docCount === 0
+        ? "No records were found. Say so clearly."
+        : "Present the data above in plain, friendly English. " +
+        "Do not invent any values not in the result.");
 
-    messages.push({
-      role: "user",
-      content:
-        `TOOL RESULT (${toolCall.tool}):\n${resultJson}\n\n` +
-        (docCount === 0
-          ? "No documents were found. Say so clearly."
-          : "Present the data above in plain, friendly English. " +
-            "Format dollar amounts by dividing cents by 100. " +
-            "Do not invent any values not in the result."),
-    });
+    // Instead of pushing two messages, merge:
+    messages.push({ role: "user", content: toolMessage });
   }
 
   return "Reached max reasoning steps. Please rephrase your question.";

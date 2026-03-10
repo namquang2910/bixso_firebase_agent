@@ -26,28 +26,38 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import path from "path";
 import fs from "fs";
 
-// ─── Firebase init ─────────────────────────────────────────────────────────────
-const USE_EMULATOR = process.env.FIRESTORE_EMULATOR_HOST !== undefined;
+// ─── Firebase init ─────────────────────────────────────────────────────────────────────────────
+// FIRESTORE_EMULATOR_HOST must be force-set before getFirestore() is called.
+// Firebase Admin SDK reads this env var internally during initialization.
 
 if (!getApps().length) {
-  if (USE_EMULATOR) {
-    // Emulator mode — no credentials needed
-    initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID ?? "courseai-demo" });
-    console.log("🔧 Using Firestore Emulator at:", process.env.FIRESTORE_EMULATOR_HOST);
-  } else {
-    const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-    if (!keyPath || !fs.existsSync(keyPath)) {
-      console.error(
-        "❌ No service account found.\n" +
-        "   Set FIRESTORE_EMULATOR_HOST=localhost:8080 to use the emulator, OR\n" +
-        "   Set FIREBASE_SERVICE_ACCOUNT_PATH to your serviceAccount.json path."
-      );
-      process.exit(1);
-    }
+  const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST ?? process.env.FIRESTORE_EMULATOR ?? null;
+  const projectId    = process.env.FIREBASE_PROJECT_ID ?? "courseai-demo";
+  const keyPath      = process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? null;
+
+  if (emulatorHost) {
+    process.env.FIRESTORE_EMULATOR_HOST = emulatorHost;
+    initializeApp({ projectId });
+    console.log("🔧 Using Firestore Emulator at: " + emulatorHost + "  (project: " + projectId + ")");
+  } else if (keyPath && fs.existsSync(path.resolve(keyPath))) {
     const serviceAccount = JSON.parse(fs.readFileSync(path.resolve(keyPath), "utf8"));
     initializeApp({ credential: cert(serviceAccount) });
+    console.log("✅ Using production Firestore (service account: " + keyPath + ")");
+  } else {
+    console.error(
+      "\n❌ Firebase is not configured. Add ONE of these to your .env file:\n\n" +
+      "  Option A - Local emulator (recommended for development):\n" +
+      "    FIRESTORE_EMULATOR_HOST=localhost:8080\n" +
+      "    FIREBASE_PROJECT_ID=courseai-demo\n\n" +
+      "  Option B - Production Firestore:\n" +
+      "    FIREBASE_SERVICE_ACCOUNT_PATH=./serviceAccount.json\n\n" +
+      "  Make sure your .env file is in the PROJECT ROOT (same folder as package.json).\n" +
+      "  Current working directory: " + process.cwd() + "\n"
+    );
+    process.exit(1);
   }
 }
+
 
 const db = getFirestore();
 

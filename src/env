@@ -1,0 +1,17 @@
+# ============================================================
+# SQL AI Agent — Environment Configuration (Ollama)
+# ============================================================
+
+# --- OLLAMA SETTINGS ---
+# Model to use — must be pulled first: ollama pull llama3.2
+# Recommended models for tool calling: llama3.1, llama3.2, mistral, qwen2.5
+OLLAMA_MODEL=llama3.2
+
+# Ollama server address (default when running locally)
+OLLAMA_SERVER_ADDRESS=http://localhost:11434
+
+# --- DATABASE ---
+DB_PATH=./data/database.sqlite
+
+# --- LOGGING ---
+SQL_LOG_ENABLED=true
